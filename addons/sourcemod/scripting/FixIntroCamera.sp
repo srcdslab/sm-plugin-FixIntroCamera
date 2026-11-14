@@ -29,69 +29,60 @@ public Plugin myinfo =
 	url = "https://github.com/srcdslab/sm-plugin-FixIntroCamera"
 };
 
-// CSPlayerState in cs_shareddefs.h: the player is looking at the intro camera.
-#define STATE_WELCOME 1
-
 // How long we keep forcing the intro angles while the client applies them.
 #define INTRO_FIX_WINDOW 1.0
 
-bool g_bWaitFirstCmd[MAXPLAYERS + 1];
+// Per client: < 0 waiting for the first real usercmd, 0 nothing to do,
+// > 0 game time until which in-flight usercmds get the intro angles.
 float g_fFixEnd[MAXPLAYERS + 1];
 float g_vIntroAngles[MAXPLAYERS + 1][3];
 
 public void OnPluginStart()
 {
-	if (FindSendPropInfo("CCSPlayer", "m_iPlayerState") <= 0)
+	if (GetEngineVersion() != Engine_CSS)
 		SetFailState("This plugin only supports Counter-Strike: Source");
 }
 
 public void OnClientPutInServer(int client)
 {
-	g_bWaitFirstCmd[client] = !IsFakeClient(client);
-	g_fFixEnd[client] = 0.0;
+	// A client entering the game always starts on the intro camera (STATE_WELCOME).
+	g_fFixEnd[client] = IsFakeClient(client) ? 0.0 : -1.0;
 }
 
 public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3], float angles[3], int &weapon, int &subtype, int &cmdnum, int &tickcount, int &seed, int mouse[2])
 {
-	if (g_bWaitFirstCmd[client])
+	float fFixEnd = g_fFixEnd[client];
+	if (fFixEnd == 0.0)
+		return Plugin_Continue;
+
+	if (fFixEnd < 0.0)
 	{
 		// cmdnum 0: a null command run by the server while the client is loading.
 		if (cmdnum <= 0)
 			return Plugin_Continue;
 
-		g_bWaitFirstCmd[client] = false;
-
-		if (!IsOnIntroCamera(client))
-			return Plugin_Continue;
-
 		// The eye angles are still the ones MoveToNextIntroCamera() set.
 		GetClientEyeAngles(client, g_vIntroAngles[client]);
 		if (SameAngles(angles, g_vIntroAngles[client]))
+		{
+			g_fFixEnd[client] = 0.0;
 			return Plugin_Continue;
+		}
 
 		// Teleport calls SnapEyeAngles(): this time the angles reach the client.
 		TeleportEntity(client, NULL_VECTOR, g_vIntroAngles[client], NULL_VECTOR);
 		g_fFixEnd[client] = GetGameTime() + INTRO_FIX_WINDOW;
 	}
-	else if (g_fFixEnd[client] == 0.0)
+	else if (GetGameTime() > fFixEnd || SameAngles(angles, g_vIntroAngles[client]))
 	{
-		return Plugin_Continue;
-	}
-
-	// Commands already in flight still carry the old view: replace their angles.
-	if (GetGameTime() > g_fFixEnd[client] || !IsOnIntroCamera(client) || SameAngles(angles, g_vIntroAngles[client]))
-	{
+		// The client applied the angles, or the window is over.
 		g_fFixEnd[client] = 0.0;
 		return Plugin_Continue;
 	}
 
+	// Commands already in flight still carry the old view: replace their angles.
 	angles = g_vIntroAngles[client];
 	return Plugin_Changed;
-}
-
-bool IsOnIntroCamera(int client)
-{
-	return GetClientTeam(client) <= 0 && GetEntProp(client, Prop_Send, "m_iPlayerState") == STATE_WELCOME;
 }
 
 bool SameAngles(const float a[3], const float b[3])
