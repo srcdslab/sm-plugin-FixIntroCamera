@@ -35,8 +35,9 @@ jobs:
       - name: Create package
         run: |
           set -euo pipefail
-          mkdir -p /tmp/package/addons/sourcemod/plugins
+          mkdir -p /tmp/package/addons/sourcemod/plugins /tmp/package/addons/sourcemod/gamedata
           cp addons/sourcemod/plugins/*.smx /tmp/package/addons/sourcemod/plugins/
+          cp addons/sourcemod/gamedata/*.txt /tmp/package/addons/sourcemod/gamedata/
 
       - name: Upload build archive for test runners
         uses: actions/upload-artifact@v7

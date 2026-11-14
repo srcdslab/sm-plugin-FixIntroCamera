@@ -1,0 +1,25 @@
+"Games"
+{
+	"cstrike"
+	{
+		"Offsets"
+		{
+			// class CUserCmd { vtable; int command_number; int tick_count; QAngle viewangles; ... }
+			// The vtable pointer is 4 bytes on 32-bit and 8 bytes on 64-bit builds.
+			"CUserCmd::command_number"
+			{
+				"windows"	"4"
+				"linux"		"4"
+				"windows64"	"8"
+				"linux64"	"8"
+			}
+			"CUserCmd::viewangles"
+			{
+				"windows"	"12"
+				"linux"		"12"
+				"windows64"	"16"
+				"linux64"	"16"
+			}
+		}
+	}
+}
