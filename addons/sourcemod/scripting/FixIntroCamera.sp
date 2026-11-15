@@ -28,7 +28,7 @@ public Plugin myinfo =
 	name = "FixIntroCamera",
 	author = "Rushaway",
 	description = "Fixes the CS:S intro camera facing the wrong way for a few seconds after joining",
-	version = "1.0.0",
+	version = "1.0.1",
 	url = "https://github.com/srcdslab/sm-plugin-FixIntroCamera"
 };
 
@@ -46,6 +46,7 @@ int g_iOffViewAngles;
 // > 0 engine time until which in-flight usercmds get the intro angles.
 float g_fFixEnd[MAXPLAYERS + 1];
 float g_vIntroAngles[MAXPLAYERS + 1][3];
+bool g_bHaveAngles[MAXPLAYERS + 1];
 int g_iLastCmd[MAXPLAYERS + 1];
 int g_iHookId[MAXPLAYERS + 1] = {INVALID_HOOK_ID, ...};
 
@@ -83,6 +84,7 @@ public void OnClientPutInServer(int client)
 {
 	g_fFixEnd[client] = 0.0;
 	g_iLastCmd[client] = 0;
+	g_bHaveAngles[client] = false;
 	g_iHookId[client] = INVALID_HOOK_ID;
 	if (IsFakeClient(client))
 		return;
@@ -104,10 +106,33 @@ public MRESReturn Hook_PlayerRunCmd(int client, DHookParam hParams)
 	if (fFixEnd == 0.0)
 		return MRES_Ignored;
 
-	// Only look at new usercmds. command_number 0 is a null command run while the
-	// client is loading, and when no new usercmd arrived in time the server runs the
-	// last one again, with the angles we already wrote into it (seen 2026-11-15).
+	// First call, from the first null command or usercmd after ClientActive: the eye
+	// angles are still the ones MoveToNextIntroCamera() set. Read them now, before any
+	// usercmd goes through PlayerRunCommand and changes them.
+	// VectorAngles() returns them in [0, 360), so a camera looking up has a pitch like
+	// 352.9. Keep them as a client sends them ([-180, 180]): anticheats clamp the
+	// usercmd pitch to 89 (Lilac turned 352.9 into 89 on ze_rooftop_runaway1_v4, view
+	// straight down for 5 s, 2026-11-15).
+	if (!g_bHaveAngles[client])
+	{
+		GetClientEyeAngles(client, g_vIntroAngles[client]);
+		for (int i = 0; i < 3; i++)
+			g_vIntroAngles[client][i] = NormalizeAngle(g_vIntroAngles[client][i]);
+		g_bHaveAngles[client] = true;
+	}
+
+	// command_number 0 is a null command, run every tick while the client is loading,
+	// with the eye angles as viewangles. Give it the normalized angles, or Lilac
+	// clamps the pitch and the eye angles become 89 (seen 2026-11-15).
 	int iCmd = hParams.GetObjectVar(1, g_iOffCmdNumber, ObjectValueType_Int);
+	if (iCmd == 0)
+	{
+		hParams.SetObjectVarVector(1, g_iOffViewAngles, ObjectValueType_Vector, g_vIntroAngles[client]);
+		return MRES_Ignored;
+	}
+
+	// Only look at new usercmds: when no new usercmd arrived in time the server runs
+	// the last one again, with the angles we already wrote into it (seen 2026-11-15).
 	if (iCmd <= g_iLastCmd[client])
 		return MRES_Ignored;
 
@@ -118,8 +143,7 @@ public MRESReturn Hook_PlayerRunCmd(int client, DHookParam hParams)
 
 	if (fFixEnd < 0.0)
 	{
-		// First real usercmd: the eye angles are still the ones MoveToNextIntroCamera() set.
-		GetClientEyeAngles(client, g_vIntroAngles[client]);
+		// First real usercmd.
 		if (SameAngles(vAngles, g_vIntroAngles[client]))
 		{
 			Done(client);
@@ -168,15 +192,15 @@ void Unhook(int client)
 
 bool SameAngles(const float a[3], const float b[3])
 {
-	return FloatAbs(AngleDiff(a[0], b[0])) < 1.0 && FloatAbs(AngleDiff(a[1], b[1])) < 1.0;
+	return FloatAbs(NormalizeAngle(a[0] - b[0])) < 1.0 && FloatAbs(NormalizeAngle(a[1] - b[1])) < 1.0;
 }
 
-float AngleDiff(float a, float b)
+// Brings an angle into [-180, 180].
+float NormalizeAngle(float a)
 {
-	float diff = a - b;
-	while (diff > 180.0)
-		diff -= 360.0;
-	while (diff < -180.0)
-		diff += 360.0;
-	return diff;
+	while (a > 180.0)
+		a -= 360.0;
+	while (a < -180.0)
+		a += 360.0;
+	return a;
 }

@@ -21,6 +21,11 @@ On the first real command of the player, who is still on the intro camera, it se
 again (`TeleportEntity`). For up to two seconds it also replaces the angles of the commands that were
 already in flight. Then it removes the hook, so nothing runs per command afterwards.
 
+The camera angles are read on the first command the player runs, and kept in `[-180, 180]` like a client
+sends them. The game computes them in `[0, 360)`, so a camera looking slightly up has a pitch like `352.9`:
+anticheats that clamp the pitch to 89 (Lilac) would otherwise turn the view straight down. The plugin also
+writes these angles into the null commands run while the client loads, for the same reason.
+
 ## Install
 
 Copy `addons/sourcemod/plugins/FixIntroCamera.smx` and `addons/sourcemod/gamedata/FixIntroCamera.games.txt`.
