@@ -18,7 +18,7 @@ no commands yet, so the server runs `CBasePlayer::RunNullCommand()` every tick, 
 
 The plugin hooks `CBasePlayer::PlayerRunCommand` (DHooks) on each human player from `ClientPutInServer`.
 On the first real command of the player, who is still on the intro camera, it sends the camera angles
-again (`TeleportEntity`). For up to one second it also replaces the angles of the commands that were
+again (`TeleportEntity`). For up to two seconds it also replaces the angles of the commands that were
 already in flight. Then it removes the hook, so nothing runs per command afterwards.
 
 ## Install

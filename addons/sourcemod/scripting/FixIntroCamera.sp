@@ -32,17 +32,21 @@ public Plugin myinfo =
 	url = "https://github.com/srcdslab/sm-plugin-FixIntroCamera"
 };
 
-// How long we keep forcing the intro angles while the client applies them.
-#define INTRO_FIX_WINDOW 1.0
+// How long (real time) we keep forcing the intro angles while the client applies
+// them. The client took 0.97 s on ze_umbra_v1_4 (2026-11-15), hence 2 s. Not game
+// time: in PlayerRunCommand it follows the player's tick base, which jumped by 240
+// ticks (3.6 s) while a client loaded a big map.
+#define INTRO_FIX_WINDOW 2.0
 
 DynamicHook g_hPlayerRunCmd;
 int g_iOffCmdNumber;
 int g_iOffViewAngles;
 
 // Per client: < 0 waiting for the first real usercmd, 0 done,
-// > 0 game time until which in-flight usercmds get the intro angles.
+// > 0 engine time until which in-flight usercmds get the intro angles.
 float g_fFixEnd[MAXPLAYERS + 1];
 float g_vIntroAngles[MAXPLAYERS + 1][3];
+int g_iLastCmd[MAXPLAYERS + 1];
 int g_iHookId[MAXPLAYERS + 1] = {INVALID_HOOK_ID, ...};
 
 public void OnPluginStart()
@@ -78,6 +82,7 @@ public void OnPluginStart()
 public void OnClientPutInServer(int client)
 {
 	g_fFixEnd[client] = 0.0;
+	g_iLastCmd[client] = 0;
 	g_iHookId[client] = INVALID_HOOK_ID;
 	if (IsFakeClient(client))
 		return;
@@ -99,15 +104,21 @@ public MRESReturn Hook_PlayerRunCmd(int client, DHookParam hParams)
 	if (fFixEnd == 0.0)
 		return MRES_Ignored;
 
+	// Only look at new usercmds. command_number 0 is a null command run while the
+	// client is loading, and when no new usercmd arrived in time the server runs the
+	// last one again, with the angles we already wrote into it (seen 2026-11-15).
+	int iCmd = hParams.GetObjectVar(1, g_iOffCmdNumber, ObjectValueType_Int);
+	if (iCmd <= g_iLastCmd[client])
+		return MRES_Ignored;
+
+	g_iLastCmd[client] = iCmd;
+
 	float vAngles[3];
+	hParams.GetObjectVarVector(1, g_iOffViewAngles, ObjectValueType_Vector, vAngles);
+
 	if (fFixEnd < 0.0)
 	{
-		// command_number 0: a null command run by the server while the client is loading.
-		if (hParams.GetObjectVar(1, g_iOffCmdNumber, ObjectValueType_Int) <= 0)
-			return MRES_Ignored;
-
-		// The eye angles are still the ones MoveToNextIntroCamera() set.
-		hParams.GetObjectVarVector(1, g_iOffViewAngles, ObjectValueType_Vector, vAngles);
+		// First real usercmd: the eye angles are still the ones MoveToNextIntroCamera() set.
 		GetClientEyeAngles(client, g_vIntroAngles[client]);
 		if (SameAngles(vAngles, g_vIntroAngles[client]))
 		{
@@ -117,20 +128,16 @@ public MRESReturn Hook_PlayerRunCmd(int client, DHookParam hParams)
 
 		// Teleport calls SnapEyeAngles(): this time the angles reach the client.
 		TeleportEntity(client, NULL_VECTOR, g_vIntroAngles[client], NULL_VECTOR);
-		g_fFixEnd[client] = GetGameTime() + INTRO_FIX_WINDOW;
+		g_fFixEnd[client] = GetEngineTime() + INTRO_FIX_WINDOW;
 	}
-	else
+	else if (GetEngineTime() > fFixEnd || SameAngles(vAngles, g_vIntroAngles[client]))
 	{
-		hParams.GetObjectVarVector(1, g_iOffViewAngles, ObjectValueType_Vector, vAngles);
-		if (GetGameTime() > fFixEnd || SameAngles(vAngles, g_vIntroAngles[client]))
-		{
-			// The client applied the angles, or the window is over.
-			Done(client);
-			return MRES_Ignored;
-		}
+		// The client applied the angles, or the window is over.
+		Done(client);
+		return MRES_Ignored;
 	}
 
-	// Commands already in flight still carry the old view: replace their angles.
+	// Usercmds already in flight still carry the old view: replace their angles.
 	// The CUserCmd is written in place, the call itself is unchanged.
 	hParams.SetObjectVarVector(1, g_iOffViewAngles, ObjectValueType_Vector, g_vIntroAngles[client]);
 	return MRES_Ignored;
